@@ -1,0 +1,21 @@
+{
+  "%n live feeds": { "one": "%n flux en direct", "many": "%n flux en direct", "other": "%n flux en direct" },
+  "Paused": "En pause",
+  "Keyboard shortcuts": "Raccourcis clavier",
+  "Pause or resume": "Mettre en pause ou reprendre",
+  "New random wall": "Nouveau mur aléatoire",
+  "Toggle fullscreen": "Plein écran",
+  "Show or hide shortcuts": "Afficher ou masquer les raccourcis",
+  "Close / leave fullscreen": "Fermer / quitter le plein écran",
+  "Quit": "Quitter",
+  "Seed %1": "Graine %1",
+  "zoom %1%": "zoom %1 %",
+  "nodes %1": "nœuds %1",
+  "links %1": "liens %1",
+  "plain text, yours to keep": "texte brut, à vous pour toujours",
+  "of %1": "sur %1",
+  "before": "avant",
+  "after": "après",
+  "light": "clair",
+  "dark": "sombre"
+}

@@ -1,0 +1,24 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="Panel.qml">Panel.qml</file>
+        <file alias="Header.qml">Header.qml</file>
+        <file alias="Ticker.qml">Ticker.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="GraphPanel.qml">GraphPanel.qml</file>
+        <file alias="CanvasPanel.qml">CanvasPanel.qml</file>
+        <file alias="RegistryPanel.qml">RegistryPanel.qml</file>
+        <file alias="CodePanel.qml">CodePanel.qml</file>
+        <file alias="RadialPanel.qml">RadialPanel.qml</file>
+        <file alias="TimelinePanel.qml">TimelinePanel.qml</file>
+        <file alias="PalettePanel.qml">PalettePanel.qml</file>
+        <file alias="i18n/en.json">i18n/en.json</file>
+        <file alias="i18n/da.json">i18n/da.json</file>
+        <file alias="i18n/de.json">i18n/de.json</file>
+        <file alias="i18n/es-MX.json">i18n/es-MX.json</file>
+        <file alias="i18n/fr.json">i18n/fr.json</file>
+        <file alias="i18n/ja.json">i18n/ja.json</file>
+        <file alias="i18n/pt.json">i18n/pt.json</file>
+        <file alias="i18n/pt-BR.json">i18n/pt-BR.json</file>
+    </qresource>
+</RCC>

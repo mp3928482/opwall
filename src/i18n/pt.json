@@ -1,0 +1,21 @@
+{
+  "%n live feeds": { "one": "%n feed ao vivo", "many": "%n feeds ao vivo", "other": "%n feeds ao vivo" },
+  "Paused": "Em pausa",
+  "Keyboard shortcuts": "Atalhos de teclado",
+  "Pause or resume": "Pausar ou retomar",
+  "New random wall": "Novo painel aleatório",
+  "Toggle fullscreen": "Alternar ecrã inteiro",
+  "Show or hide shortcuts": "Mostrar ou ocultar atalhos",
+  "Close / leave fullscreen": "Fechar / sair do ecrã inteiro",
+  "Quit": "Sair",
+  "Seed %1": "Semente %1",
+  "zoom %1%": "zoom %1%",
+  "nodes %1": "nós %1",
+  "links %1": "ligações %1",
+  "plain text, yours to keep": "texto simples, é seu",
+  "of %1": "de %1",
+  "before": "antes",
+  "after": "depois",
+  "light": "claro",
+  "dark": "escuro"
+}

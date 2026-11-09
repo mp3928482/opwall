@@ -1,0 +1,21 @@
+{
+  "%n live feeds": { "other": "ライブフィード %n 件" },
+  "Paused": "一時停止中",
+  "Keyboard shortcuts": "キーボードショートカット",
+  "Pause or resume": "一時停止・再開",
+  "New random wall": "新しいランダムウォール",
+  "Toggle fullscreen": "全画面の切り替え",
+  "Show or hide shortcuts": "ショートカットの表示・非表示",
+  "Close / leave fullscreen": "閉じる・全画面を終了",
+  "Quit": "終了",
+  "Seed %1": "シード %1",
+  "zoom %1%": "ズーム %1%",
+  "nodes %1": "ノード %1",
+  "links %1": "リンク %1",
+  "plain text, yours to keep": "プレーンテキスト、ずっとあなたのもの",
+  "of %1": "/ %1",
+  "before": "前",
+  "after": "後",
+  "light": "ライト",
+  "dark": "ダーク"
+}

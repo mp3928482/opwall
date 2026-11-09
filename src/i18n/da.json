@@ -1,0 +1,21 @@
+{
+  "%n live feeds": { "one": "%n live-feed", "other": "%n live-feeds" },
+  "Paused": "Sat på pause",
+  "Keyboard shortcuts": "Tastaturgenveje",
+  "Pause or resume": "Pause eller fortsæt",
+  "New random wall": "Ny tilfældig væg",
+  "Toggle fullscreen": "Fuld skærm til/fra",
+  "Show or hide shortcuts": "Vis eller skjul genveje",
+  "Close / leave fullscreen": "Luk / forlad fuld skærm",
+  "Quit": "Afslut",
+  "Seed %1": "Frø %1",
+  "zoom %1%": "zoom %1%",
+  "nodes %1": "noder %1",
+  "links %1": "links %1",
+  "plain text, yours to keep": "ren tekst, din at beholde",
+  "of %1": "af %1",
+  "before": "før",
+  "after": "efter",
+  "light": "lys",
+  "dark": "mørk"
+}

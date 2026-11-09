@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=Opwall
+Comment=A movie-style operations wall filled with randomized data
+Comment[da]=En filmagtig operationsvæg fyldt med tilfældige data
+Comment[de]=Eine Einsatzzentrale wie im Film, gefüllt mit Zufallsdaten
+Comment[es_MX]=Un muro de operaciones de película lleno de datos aleatorios
+Comment[fr]=Un mur d'opérations de cinéma rempli de données aléatoires
+Comment[ja]=ランダムなデータで動く映画風のオペレーションウォール
+Comment[pt]=Um painel de operações de filme cheio de dados aleatórios
+Exec=opwall
+Icon=opwall
+Terminal=false
+Categories=Utility;
+Keywords=dashboard;hacker;screensaver;ops;
+StartupWMClass=opwall
