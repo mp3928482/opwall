@@ -44,12 +44,12 @@ ApplicationWindow {
     // Each panel's place as fractions of the wall: a wide grid for a wide
     // window and a stacked one, like a phone video, for a tall one.
     readonly property var wideLayout: [
-        [0, 0, .5, .55], [.5, 0, .24, .55], [.74, 0, .26, .55],
-        [0, .55, .3, .45], [.3, .55, .17, .45], [.47, .55, .27, .45], [.74, .55, .26, .45]
+        [0, 0, .54, .62], [.54, 0, .22, .62], [.76, 0, .24, .62],
+        [0, .62, .3, .38], [.3, .62, .17, .38], [.47, .62, .27, .38], [.74, .62, .26, .38]
     ]
     readonly property var tallLayout: [
-        [0, 0, .64, .4], [.64, 0, .36, .4], [0, .4, .5, .3],
-        [.5, .4, .5, .3], [0, .7, .33, .3], [.33, .7, .34, .3], [.67, .7, .33, .3]
+        [0, 0, .66, .46], [.66, 0, .34, .46], [0, .46, .5, .28],
+        [.5, .46, .5, .28], [0, .74, .33, .26], [.33, .74, .34, .26], [.67, .74, .33, .26]
     ]
     function place(index) {
         return (tall ? tallLayout : wideLayout)[index]

@@ -1,14 +1,13 @@
 import QtQuick
 
 // Panel 07: the theme's own colors as swatches, and a page that writes
-// itself, flipping between light and dark paper.
+// itself on dark paper.
 Item {
     id: root
     property color tint: theme.accent
 
     readonly property var keys: ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"]
     property int picked: 0
-    property bool light: false
 
     property var lines: []
     property int total: 0
@@ -42,16 +41,12 @@ Item {
     Timer {
         interval: 2400
         running: !backend.paused && root.visible && root.total > 0 && root.typed >= root.total
-        onTriggered: {
-            root.light = !root.light
-            backend.nextWriter()
-        }
+        onTriggered: backend.nextWriter()
     }
 
     function ink(role) {
         const c = theme.colors
-        const pick = { heading: c.orange, list: page.text, quote: theme.muted, code: c.cyan }[role] || page.text
-        return light && role !== "list" && role !== "plain" ? Qt.darker(pick, 1.6) : pick
+        return { heading: c.orange, quote: theme.muted, code: c.cyan }[role] || theme.foreground
     }
 
     Row {
@@ -86,22 +81,13 @@ Item {
         }
         Text { text: root.keys[root.picked]; color: theme.muted; font.pixelSize: 10 }
     }
-    Text {
-        anchors { right: parent.right; verticalCenter: readout.verticalCenter }
-        text: root.light ? qsTr("light") : qsTr("dark")
-        color: root.tint
-        font.pixelSize: 10
-    }
-
     Rectangle {
         id: page
-        readonly property color text: root.light ? theme.surface : theme.foreground
         anchors { left: parent.left; right: parent.right; top: readout.bottom; topMargin: 8; bottom: parent.bottom }
         radius: Math.min(4, theme.radius)
-        color: root.light ? theme.foreground : Qt.rgba(0, 0, 0, 0.3)
+        color: Qt.rgba(0, 0, 0, 0.3)
         border.color: Qt.rgba(1, 1, 1, 0.08)
         clip: true
-        Behavior on color { ColorAnimation { duration: 500 } }
 
         Column {
             anchors { fill: parent; margins: 10 }
