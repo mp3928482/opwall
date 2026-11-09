@@ -1,23 +1,81 @@
 #include "graphitem.h"
 
-#include <QFont>
-#include <QFontMetricsF>
+#include <QImage>
 #include <QPainter>
+#include <QQuickWindow>
 #include <QRandomGenerator>
+#include <QSGImageNode>
+#include <QSGRendererInterface>
+#include <QSGTexture>
+#include <QSGFlatColorMaterial>
+#include <QSGGeometryNode>
+#include <QSGVertexColorMaterial>
 #include <cmath>
 
 namespace {
+
 constexpr double kPi = 3.14159265358979323846;
+constexpr int kSegments = 12;
+
 double rnd() { return QRandomGenerator::global()->generateDouble(); }
+int pick(int count) { return int(QRandomGenerator::global()->bounded(count)); }
+
+// Vertex colors are premultiplied.
+void setVertex(QSGGeometry::ColoredPoint2D &v, QPointF p, const QColor &c, double alpha) {
+    const double a = std::clamp(alpha, 0.0, 1.0);
+    v.set(float(p.x()), float(p.y()), uchar(c.red() * a), uchar(c.green() * a), uchar(c.blue() * a), uchar(255 * a));
+}
+
+// Collects feathered discs as indexed triangles: a center, a ring at the
+// disc's edge, and a transparent ring just outside it, which gives smooth
+// edges without multisampling and soft glows for free.
+struct Discs {
+    QVector<QSGGeometry::ColoredPoint2D> vertices;
+    QVector<quint32> indices;
+
+    void add(QPointF center, double radius, double feather, const QColor &color, double centerAlpha, double edgeAlpha) {
+        const quint32 base = quint32(vertices.size());
+        vertices.resize(vertices.size() + 1 + kSegments * 2);
+        setVertex(vertices[base], center, color, centerAlpha);
+        for (int k = 0; k < kSegments; ++k) {
+            const double angle = 2 * kPi * k / kSegments;
+            const QPointF direction(std::cos(angle), std::sin(angle));
+            setVertex(vertices[base + 1 + k], center + direction * radius, color, edgeAlpha);
+            setVertex(vertices[base + 1 + kSegments + k], center + direction * (radius + feather), color, 0);
+        }
+        for (int k = 0; k < kSegments; ++k) {
+            const quint32 inner = base + 1 + k, innerNext = base + 1 + (k + 1) % kSegments;
+            const quint32 outer = inner + kSegments, outerNext = innerNext + kSegments;
+            indices << base << inner << innerNext << inner << outer << outerNext << inner << outerNext << innerNext;
+        }
+    }
+};
+
+QSGGeometryNode *makeNode(QSGGeometry::DrawingMode mode, bool indexed) {
+    auto *node = new QSGGeometryNode;
+    auto *geometry = indexed
+        ? new QSGGeometry(QSGGeometry::defaultAttributes_ColoredPoint2D(), 0, 0, QSGGeometry::UnsignedIntType)
+        : new QSGGeometry(QSGGeometry::defaultAttributes_ColoredPoint2D(), 0);
+    geometry->setDrawingMode(mode);
+    geometry->setLineWidth(1);
+    geometry->setVertexDataPattern(QSGGeometry::StreamPattern);
+    geometry->setIndexDataPattern(QSGGeometry::StreamPattern);
+    node->setGeometry(geometry);
+    node->setFlag(QSGNode::OwnsGeometry);
+    node->setMaterial(new QSGVertexColorMaterial);
+    node->setFlag(QSGNode::OwnsMaterial);
+    return node;
+}
+
 } // namespace
 
-GraphItem::GraphItem(QQuickItem *parent) : QQuickPaintedItem(parent) {
-    setAntialiasing(true);
-    setOpaquePainting(false);
+GraphItem::GraphItem(QQuickItem *parent) : QQuickItem(parent) {
+    setFlag(ItemHasContents, true);
     m_timer.setInterval(33);
     connect(&m_timer, &QTimer::timeout, this, [this] {
         step();
         update();
+        emit framed();
     });
     m_timer.start();
 }
@@ -29,31 +87,25 @@ void GraphItem::setRunning(bool running) {
     emit runningChanged();
 }
 
-void GraphItem::setColors(const QVariantList &palette) {
-    m_paletteList = palette;
-    m_palette.clear();
-    for (const auto &value : palette)
-        m_palette << QColor(value.toString());
-    emit paletteChanged();
+void GraphItem::setColors(const QVariantList &colors) {
+    m_colorList = colors;
+    m_colors.clear();
+    for (const auto &value : colors)
+        m_colors << QColor(value.toString());
+    emit colorsChanged();
     update();
 }
 
 void GraphItem::setAccent(const QColor &color) {
     m_accent = color;
-    emit paletteChanged();
-    update();
-}
-
-void GraphItem::setSurface(const QColor &color) {
-    m_surface = color;
-    emit paletteChanged();
+    emit colorsChanged();
     update();
 }
 
 QColor GraphItem::clusterColor(int cluster) const {
-    if (cluster < 0 || m_palette.isEmpty())
+    if (cluster < 0 || m_colors.isEmpty())
         return m_accent;
-    return m_palette.at(cluster % m_palette.size());
+    return m_colors.at(cluster % m_colors.size());
 }
 
 double GraphItem::aspect() const {
@@ -72,30 +124,35 @@ QPointF GraphItem::anchor(int cluster) const {
     return {std::cos(angle) * .74 * aspect() * wobble, std::sin(angle) * .62 * wobble};
 }
 
+QPointF GraphItem::map(int node) const {
+    const double scale = height() / 2 * .9 * m_zoom;
+    return QPointF(width() / 2, height() / 2) + m_position.value(node) * scale;
+}
+
+QVariantList GraphItem::hubPoints() const {
+    QVariantList points;
+    for (int hub : m_hubs)
+        points << map(hub);
+    return points;
+}
+
 void GraphItem::setModel(const QVariantMap &model) {
     m_model = model;
     m_cluster.clear();
     m_edges.clear();
     m_hubs.clear();
-    m_clusterNames.clear();
     m_pulses.clear();
-    m_highlightTarget.clear();
 
     for (const auto &value : model.value("nodes").toList())
         m_cluster << value.toInt();
-    for (const auto &value : model.value("clusters").toList()) {
-        const auto cluster = value.toMap();
-        m_hubs << cluster.value("hub").toInt();
-        m_clusterNames << cluster.value("name").toString() + "/";
-    }
+    for (const auto &value : model.value("clusters").toList())
+        m_hubs << value.toMap().value("hub").toInt();
     const auto edges = model.value("edges").toList();
     for (int i = 0; i + 1 < edges.size(); i += 2) {
         const int a = edges.at(i).toInt(), b = edges.at(i + 1).toInt();
-        if (a >= 0 && b >= 0 && a < m_cluster.size() && b < m_cluster.size())
+        if (a >= 0 && b >= 0 && a < m_cluster.size() && b < m_cluster.size() && a != b)
             m_edges << qMakePair(a, b);
     }
-    m_rootName = model.value("root").toString();
-    m_rootLetter = model.value("rootLetter").toString();
 
     // Everything starts in a tight knot at the center and blows outward, so
     // a reroll visibly assembles a new graph.
@@ -103,18 +160,38 @@ void GraphItem::setModel(const QVariantMap &model) {
     m_position.resize(n);
     m_velocity.fill(QPointF(), n);
     m_degree.fill(0, n);
-    for (const auto &edge : std::as_const(m_edges)) {
-        ++m_degree[edge.first];
-        ++m_degree[edge.second];
+    m_adjacent.fill({}, n);
+    for (int e = 0; e < m_edges.size(); ++e) {
+        ++m_degree[m_edges[e].first];
+        ++m_degree[m_edges[e].second];
+        m_adjacent[m_edges[e].first] << e;
+        m_adjacent[m_edges[e].second] << e;
     }
     for (int i = 0; i < n; ++i) {
         const double angle = rnd() * 2 * kPi, radius = rnd() * .08;
         m_position[i] = {std::cos(angle) * radius, std::sin(angle) * radius};
     }
     m_highlight.fill(0, int(m_edges.size()));
+    m_lit.fill(false, int(m_edges.size()));
     m_alpha = 1;
     emit modelChanged();
     update();
+}
+
+// A bright thread: a random walk along the edges, lit together.
+void GraphItem::pickThread() {
+    m_lit.fill(false, int(m_edges.size()));
+    if (m_edges.isEmpty())
+        return;
+    int node = m_edges[pick(int(m_edges.size()))].first;
+    for (int k = 0; k < 16; ++k) {
+        const auto &choices = m_adjacent[node];
+        if (choices.isEmpty())
+            break;
+        const int e = choices[pick(int(choices.size()))];
+        m_lit[e] = true;
+        node = m_edges[e].first == node ? m_edges[e].second : m_edges[e].first;
+    }
 }
 
 void GraphItem::step() {
@@ -172,138 +249,141 @@ void GraphItem::step() {
         m_position[i] += m_velocity[i] * (.4 + m_alpha);
     }
 
-    // Bright threads: a handful of edges light up together and fade out.
-    if (m_ticks % 70 == 1 && !m_edges.isEmpty()) {
-        m_highlightTarget.clear();
-        const int start = QRandomGenerator::global()->bounded(int(m_edges.size()));
-        int node = m_edges[start].first;
-        for (int k = 0; k < 18; ++k) {
-            const int edge = QRandomGenerator::global()->bounded(int(m_edges.size()));
-            // Prefer edges touching the current node, so the threads connect.
-            for (int tries = 0; tries < 40; ++tries) {
-                const int e = QRandomGenerator::global()->bounded(int(m_edges.size()));
-                if (m_edges[e].first == node || m_edges[e].second == node) {
-                    m_highlightTarget << e;
-                    node = m_edges[e].first == node ? m_edges[e].second : m_edges[e].first;
-                    break;
-                }
-                if (tries == 39)
-                    m_highlightTarget << edge;
-            }
-        }
-    }
-    for (int e = 0; e < m_highlight.size(); ++e) {
-        const bool lit = m_highlightTarget.contains(e) && (m_ticks % 70) < 50;
-        m_highlight[e] = lit ? std::min(1.0, m_highlight[e] + .08) : std::max(0.0, m_highlight[e] - .03);
-    }
+    if (m_ticks % 70 == 1)
+        pickThread();
+    const bool holding = (m_ticks % 70) < 50;
+    for (int e = 0; e < m_highlight.size(); ++e)
+        m_highlight[e] = m_lit[e] && holding ? std::min(1.0, m_highlight[e] + .08) : std::max(0.0, m_highlight[e] - .03);
 
     // Packets travelling along random edges.
     if (m_pulses.size() < 16 && !m_edges.isEmpty() && rnd() < .35)
-        m_pulses << Pulse{int(QRandomGenerator::global()->bounded(int(m_edges.size()))), 0, .015 + rnd() * .03};
+        m_pulses << Pulse{pick(int(m_edges.size())), 0, .015 + rnd() * .03};
     for (auto &pulse : m_pulses)
         pulse.t += pulse.speed;
     m_pulses.removeIf([](const Pulse &pulse) { return pulse.t >= 1; });
 }
 
-void GraphItem::paint(QPainter *painter) {
-    if (m_position.isEmpty() || width() <= 0 || height() <= 0)
-        return;
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    const double scale = height() / 2 * .9 * m_zoom;
-    const QPointF center(width() / 2, height() / 2);
-    auto map = [&](int i) { return center + m_position[i] * scale; };
-
-    // Edges, batched per cluster so there are only a few draw calls.
-    QVector<QVector<QLineF>> lines(m_hubs.size() + 1);
+void GraphItem::paintSoftware(QImage &image) const {
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    auto tinted = [](QColor c, double alpha) { c.setAlphaF(std::clamp(alpha, 0.0, 1.0)); return c; };
     for (const auto &edge : std::as_const(m_edges)) {
+        const bool spoke = m_cluster[edge.first] < 0 || m_cluster[edge.second] < 0;
         const int cluster = m_cluster[edge.first] < 0 ? m_cluster[edge.second] : m_cluster[edge.first];
-        lines[cluster < 0 ? m_hubs.size() : cluster] << QLineF(map(edge.first), map(edge.second));
-    }
-    for (int c = 0; c < lines.size(); ++c) {
-        QColor color = c == m_hubs.size() ? m_accent : clusterColor(c);
-        color.setAlphaF(c == m_hubs.size() ? .35 : .22);
-        painter->setPen(QPen(color, .7));
-        painter->drawLines(lines[c]);
+        painter.setPen(QPen(tinted(spoke ? m_accent : clusterColor(cluster), spoke ? .4 : .28), .8));
+        painter.drawLine(map(edge.first), map(edge.second));
     }
     for (int e = 0; e < m_edges.size(); ++e) {
         if (m_highlight[e] <= 0)
             continue;
-        QColor color(Qt::white);
-        color.setAlphaF(.85 * m_highlight[e]);
-        painter->setPen(QPen(color, 1.3));
-        painter->drawLine(map(m_edges[e].first), map(m_edges[e].second));
+        painter.setPen(QPen(tinted(Qt::white, .9 * m_highlight[e]), 1.2));
+        painter.drawLine(map(m_edges[e].first), map(m_edges[e].second));
     }
-
-    // Nodes, with a soft glow on the well connected ones.
-    painter->setPen(Qt::NoPen);
+    painter.setPen(Qt::NoPen);
     for (int i = 0; i < m_position.size(); ++i) {
         const int cluster = m_cluster[i];
         if (cluster < 0)
             continue;
         const bool hub = m_hubs.value(cluster) == i;
         const double radius = hub ? 5.5 : 1.3 + std::sqrt(double(m_degree[i])) * .8;
-        QColor color = clusterColor(cluster);
-        const QPointF p = map(i);
         if (hub || m_degree[i] > 3) {
-            QColor glow = color;
-            glow.setAlphaF(.18);
-            painter->setBrush(glow);
-            painter->drawEllipse(p, radius * 2.6, radius * 2.6);
+            painter.setBrush(tinted(clusterColor(cluster), .16));
+            painter.drawEllipse(map(i), radius * 2.6, radius * 2.6);
         }
-        if (!hub && m_degree[i] <= 1)
-            color.setAlphaF(.75);
-        painter->setBrush(color);
-        painter->drawEllipse(p, radius, radius);
+        painter.setBrush(tinted(clusterColor(cluster), !hub && m_degree[i] <= 1 ? .75 : 1));
+        painter.drawEllipse(map(i), radius, radius);
     }
-
-    // Packets.
     for (const auto &pulse : std::as_const(m_pulses)) {
         const auto &edge = m_edges[pulse.edge];
         const QPointF p = map(edge.first) + (map(edge.second) - map(edge.first)) * pulse.t;
-        QColor glow(Qt::white);
-        glow.setAlphaF(.25);
-        painter->setBrush(glow);
-        painter->drawEllipse(p, 4.5, 4.5);
-        painter->setBrush(Qt::white);
-        painter->drawEllipse(p, 1.8, 1.8);
+        painter.setBrush(tinted(Qt::white, .25));
+        painter.drawEllipse(p, 4.5, 4.5);
+        painter.setBrush(Qt::white);
+        painter.drawEllipse(p, 1.8, 1.8);
+    }
+    painter.setBrush(tinted(m_accent, .22));
+    painter.drawEllipse(map(0), 18, 18);
+}
+
+QSGNode *GraphItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
+    if (window() && window()->rendererInterface()->graphicsApi() == QSGRendererInterface::Software) {
+        auto *node = static_cast<QSGImageNode *>(old);
+        if (!node)
+            node = window()->createImageNode();
+        const qreal dpr = window()->effectiveDevicePixelRatio();
+        QImage image(QSize(int(width() * dpr), int(height() * dpr)).expandedTo(QSize(1, 1)),
+                     QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(dpr);
+        image.fill(Qt::transparent);
+        paintSoftware(image);
+        node->setTexture(window()->createTextureFromImage(image));
+        node->setOwnsTexture(true);
+        node->setRect(boundingRect());
+        return node;
     }
 
-    // Hub labels as pills in the cluster's color.
-    QFont font(m_fontFamily);
-    font.setPixelSize(10);
-    painter->setFont(font);
-    const QFontMetricsF metrics(font);
-    for (int c = 0; c < m_hubs.size(); ++c) {
-        const QString text = m_clusterNames.value(c).chopped(1);
-        const QPointF p = map(m_hubs[c]);
-        const double w = metrics.horizontalAdvance(text) + 14, h = metrics.height() + 6;
-        const QRectF pill(p.x() - w / 2, p.y() - h - 8, w, h);
-        QColor fill = m_surface;
-        fill.setAlphaF(.88);
-        painter->setBrush(fill);
-        painter->setPen(QPen(clusterColor(c), 1));
-        painter->drawRoundedRect(pill, h / 2, h / 2);
-        painter->setPen(clusterColor(c).lighter(130));
-        painter->drawText(pill, Qt::AlignCenter, text);
+    QSGNode *root = old;
+    if (!root) {
+        root = new QSGNode;
+        root->appendChildNode(makeNode(QSGGeometry::DrawLines, false));
+        root->appendChildNode(makeNode(QSGGeometry::DrawTriangles, true));
     }
+    auto *lineNode = static_cast<QSGGeometryNode *>(root->firstChild());
+    auto *discNode = static_cast<QSGGeometryNode *>(root->lastChild());
 
-    // The root: a lettered disc in the accent, its name beneath.
-    const QPointF root = center;
-    QColor halo = m_accent;
-    halo.setAlphaF(.22);
-    painter->setPen(Qt::NoPen);
-    painter->setBrush(halo);
-    painter->drawEllipse(root, 18, 18);
-    painter->setBrush(m_accent.darker(150));
-    painter->setPen(QPen(m_accent, 1.5));
-    painter->drawEllipse(root, 11, 11);
-    QFont bold(m_fontFamily);
-    bold.setPixelSize(12);
-    bold.setBold(true);
-    painter->setFont(bold);
-    painter->setPen(Qt::white);
-    painter->drawText(QRectF(root.x() - 11, root.y() - 11, 22, 22), Qt::AlignCenter, m_rootLetter);
-    painter->setFont(font);
-    painter->setPen(QColor(255, 255, 255, 200));
-    painter->drawText(QRectF(root.x() - 120, root.y() + 16, 240, 16), Qt::AlignHCenter | Qt::AlignTop, m_rootName);
+    // Edges as hairlines in their cluster's color, with the lit thread in
+    // white on top.
+    QVector<QSGGeometry::ColoredPoint2D> lines;
+    lines.reserve((m_edges.size() + 20) * 2);
+    for (int e = 0; e < m_edges.size(); ++e) {
+        const auto &edge = m_edges[e];
+        const int cluster = m_cluster[edge.first] < 0 ? m_cluster[edge.second] : m_cluster[edge.first];
+        const bool spoke = m_cluster[edge.first] < 0 || m_cluster[edge.second] < 0;
+        const QColor color = spoke ? m_accent : clusterColor(cluster);
+        const double alpha = spoke ? .4 : .28;
+        lines.resize(lines.size() + 2);
+        setVertex(lines[lines.size() - 2], map(edge.first), color, alpha);
+        setVertex(lines[lines.size() - 1], map(edge.second), color, alpha);
+    }
+    for (int e = 0; e < m_edges.size(); ++e) {
+        if (m_highlight[e] <= 0)
+            continue;
+        lines.resize(lines.size() + 2);
+        setVertex(lines[lines.size() - 2], map(m_edges[e].first), Qt::white, .9 * m_highlight[e]);
+        setVertex(lines[lines.size() - 1], map(m_edges[e].second), Qt::white, .9 * m_highlight[e]);
+    }
+    QSGGeometry *lineGeometry = lineNode->geometry();
+    lineGeometry->allocate(int(lines.size()));
+    std::copy(lines.cbegin(), lines.cend(), lineGeometry->vertexDataAsColoredPoint2D());
+    lineNode->markDirty(QSGNode::DirtyGeometry);
+
+    // Nodes with glows, the packets, and the root's halo.
+    Discs discs;
+    discs.vertices.reserve(int(m_position.size()) * 2 * (1 + kSegments * 2));
+    for (int i = 0; i < m_position.size(); ++i) {
+        const int cluster = m_cluster[i];
+        if (cluster < 0)
+            continue;
+        const bool hub = m_hubs.value(cluster) == i;
+        const double radius = hub ? 5.5 : 1.3 + std::sqrt(double(m_degree[i])) * .8;
+        const QColor color = clusterColor(cluster);
+        if (hub || m_degree[i] > 3)
+            discs.add(map(i), radius * .6, radius * 2.4, color, .3, .22);
+        const double alpha = !hub && m_degree[i] <= 1 ? .75 : 1;
+        discs.add(map(i), radius, 1, color, alpha, alpha);
+    }
+    for (const auto &pulse : std::as_const(m_pulses)) {
+        const auto &edge = m_edges[pulse.edge];
+        const QPointF p = map(edge.first) + (map(edge.second) - map(edge.first)) * pulse.t;
+        discs.add(p, 1.6, 4, Qt::white, 1, .9);
+    }
+    const QPointF center = map(0);
+    discs.add(center, 10, 12, m_accent, .35, .25);
+
+    QSGGeometry *discGeometry = discNode->geometry();
+    discGeometry->allocate(int(discs.vertices.size()), int(discs.indices.size()));
+    std::copy(discs.vertices.cbegin(), discs.vertices.cend(), discGeometry->vertexDataAsColoredPoint2D());
+    std::copy(discs.indices.cbegin(), discs.indices.cend(), discGeometry->indexDataAsUInt());
+    discNode->markDirty(QSGNode::DirtyGeometry);
+    return root;
 }

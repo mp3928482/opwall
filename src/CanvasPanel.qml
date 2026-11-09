@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 
 // Panel 02: a node canvas where a ghost cursor keeps rearranging the boxes,
 // with the file's JSON underneath following along.
@@ -73,6 +74,16 @@ Item {
     }
     property var grab: ({ x: 0.1, y: 0.05 })
 
+    // The JSON is rich text, which is costly to lay out, so it follows the
+    // boxes a few times a second rather than every frame.
+    property var shown: []
+    Timer {
+        interval: 120
+        repeat: true
+        running: root.visible
+        onTriggered: if (root.shown !== root.pos) root.shown = root.pos
+    }
+
     Rectangle {
         id: board
         anchors { left: parent.left; right: parent.right; top: parent.top }
@@ -100,25 +111,30 @@ Item {
             }
         }
 
-        Canvas {
-            id: wires
-            anchors.fill: parent
-            property var positions: root.pos
-            onPositionsChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                ctx.lineWidth = 1.5
-                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.35)
-                for (const edge of backend.canvas.edges || []) {
-                    const a = root.pos[edge[0]], b = root.pos[edge[1]]
-                    if (!a || !b) continue
-                    ctx.beginPath()
-                    const ax = a.x * width + board.boxW / 2, ay = a.y * height + board.boxH / 2
-                    const bx = b.x * width + board.boxW / 2, by = b.y * height + board.boxH / 2
-                    ctx.moveTo(ax, ay)
-                    ctx.bezierCurveTo((ax + bx) / 2, ay, (ax + bx) / 2, by, bx, by)
-                    ctx.stroke()
+        // Wires as GPU-drawn shapes: a JavaScript Canvas repainted every
+        // frame of a drag costs far more than it shows.
+        Repeater {
+            model: backend.canvas.edges || []
+            delegate: Shape {
+                required property var modelData
+                readonly property var a: root.pos[modelData[0]] || ({ x: 0, y: 0 })
+                readonly property var b: root.pos[modelData[1]] || ({ x: 0, y: 0 })
+                readonly property real ax: a.x * board.width + board.boxW / 2
+                readonly property real ay: a.y * board.height + board.boxH / 2
+                readonly property real bx: b.x * board.width + board.boxW / 2
+                readonly property real by: b.y * board.height + board.boxH / 2
+                anchors.fill: parent
+                preferredRendererType: Shape.CurveRenderer
+                ShapePath {
+                    strokeColor: Qt.rgba(1, 1, 1, 0.35)
+                    strokeWidth: 1.5
+                    fillColor: "transparent"
+                    startX: ax; startY: ay
+                    PathCubic {
+                        x: bx; y: by
+                        control1X: (ax + bx) / 2; control1Y: ay
+                        control2X: (ax + bx) / 2; control2Y: by
+                    }
                 }
             }
         }
@@ -197,7 +213,7 @@ Item {
                 const boxes = backend.canvas.boxes || []
                 const lines = ['{ <font color="' + theme.palette[3] + '">"nodes"</font>: [']
                 for (let i = 0; i < boxes.length; ++i) {
-                    const p = root.pos[i] || boxes[i]
+                    const p = root.shown[i] || boxes[i]
                     const hot = i === root.dragged
                     const num = c => '<font color="' + (hot ? theme.accent : theme.palette[0]) + '">' + c + '</font>'
                     lines.push('&nbsp;&nbsp;{ "id": <font color="' + theme.palette[1] + '">"' + boxes[i].label.toLowerCase()
